@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -87,7 +88,7 @@ private fun formatTotalTime(seconds: Int): String {
     else String.format(Locale.US, "%d:%02d", m, s)
 }
 
-private val libraryTabs = listOf("喜欢作品", "下载", "播放列表", "历史")
+private val libraryTabs = listOf("播放列表", "下载", "历史", "喜欢作品")
 
 /**
  * 收藏页：二级 Tab（喜欢的作品 / 下载 / 播放列表 / 历史）。
@@ -127,10 +128,10 @@ fun LibraryScreen(
             modifier = Modifier.weight(1f),
         ) { page ->
             when (page) {
-                0 -> FavoritesTab(viewModel = viewModel, onWorkClick = onWorkClick)
+                0 -> PlaylistTab(playerViewModel = playerViewModel)
                 1 -> DownloadsTab(viewModel = viewModel)
-                2 -> PlaylistTab(playerViewModel = playerViewModel)
-                3 -> HistoryTab(viewModel = viewModel, onWorkClick = onWorkClick)
+                2 -> HistoryTab(viewModel = viewModel, onWorkClick = onWorkClick)
+                3 -> FavoritesTab(viewModel = viewModel, onWorkClick = onWorkClick)
             }
         }
     }
@@ -166,19 +167,21 @@ private fun FavoritesTab(viewModel: LibraryViewModel, onWorkClick: (Work) -> Uni
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = { sortMenuOpen = true }) {
-                Text(sortLabels[sortMode], color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
-                sortLabels.forEachIndexed { index, label ->
-                    DropdownMenuItem(
-                        text = { Text(label) },
-                        onClick = {
-                            sortMode = index
-                            sortMenuOpen = false
-                        },
-                    )
+            Box {
+                TextButton(onClick = { sortMenuOpen = true }) {
+                    Text(sortLabels[sortMode], color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Filled.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                    sortLabels.forEachIndexed { index, label ->
+                        DropdownMenuItem(
+                            text = { Text(label) },
+                            onClick = {
+                                sortMode = index
+                                sortMenuOpen = false
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -186,7 +189,7 @@ private fun FavoritesTab(viewModel: LibraryViewModel, onWorkClick: (Work) -> Uni
         if (sorted.isEmpty()) {
             EmptyState("暂无收藏")
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 84.dp)) {
                 items(sorted, key = { it.workId }) { fav ->
                     FavoriteRow(
                         favorite = fav,
@@ -282,7 +285,7 @@ private fun DownloadsTab(viewModel: LibraryViewModel) {
     if (downloads.isEmpty()) {
         EmptyState("暂无下载")
     } else {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 84.dp)) {
             items(downloads, key = { it.trackUrl }) { d ->
                 DownloadRow(
                     entity = d,
@@ -333,7 +336,7 @@ private fun PlaylistTab(playerViewModel: PlayerViewModel) {
     if (queue.entries.isEmpty()) {
         EmptyState("暂无播放列表")
     } else {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 84.dp)) {
             items(queue.entries, key = { it.index }) { entry ->
                 val isCurrent = entry.index == queue.currentIndex
                 Card(
@@ -394,7 +397,7 @@ private fun HistoryTab(viewModel: LibraryViewModel, onWorkClick: (Work) -> Unit)
         if (history.isEmpty()) {
             EmptyState("暂无历史")
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 84.dp)) {
                 items(history, key = { it.id }) { h ->
                     WorkRow(
                         title = h.title,

@@ -1,9 +1,14 @@
 package com.asmrone.app.service
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
+import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.asmrone.app.R
 import com.asmrone.app.data.local.DownloadDao
 import com.asmrone.app.data.local.DownloadEntity
 import dagger.assisted.Assisted
@@ -16,7 +21,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * 下载单个音轨的后台任务。
+ * 下载单个音轨的后台任务：下载到应用私有目录，完成后入库并发通知。
  */
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
@@ -70,9 +75,30 @@ class DownloadWorker @AssistedInject constructor(
                     )
                 )
             }
+            notifyComplete(trackTitle)
             Result.success()
         } catch (e: Exception) {
             Result.retry()
+        }
+    }
+
+    /** 下载完成系统通知（未授权通知权限时静默跳过） */
+    private fun notifyComplete(trackTitle: String) {
+        runCatching {
+            val nm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(
+                    NotificationChannel(CHANNEL_ID, "下载", NotificationManager.IMPORTANCE_DEFAULT)
+                )
+            }
+            val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("下载完成")
+                .setContentText(trackTitle)
+                .setAutoCancel(true)
+                .build()
+            androidx.core.app.NotificationManagerCompat.from(applicationContext)
+                .notify(inputData.hashCode(), notification)
         }
     }
 
@@ -96,5 +122,6 @@ class DownloadWorker @AssistedInject constructor(
         const val KEY_WORK_ID = "work_id"
         const val KEY_WORK_TITLE = "work_title"
         const val KEY_TRACK_TITLE = "track_title"
+        private const val CHANNEL_ID = "asmr_download"
     }
 }

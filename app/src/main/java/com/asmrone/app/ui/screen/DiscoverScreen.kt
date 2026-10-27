@@ -1,5 +1,6 @@
 package com.asmrone.app.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,9 +72,16 @@ fun DiscoverScreen(
     val favoriteWorkIds by filterViewModel.favoriteWorkIds.collectAsStateWithLifecycle()
     val subtitleOnly by filterViewModel.subtitleOnly.collectAsStateWithLifecycle()
 
-    var query by remember { mutableStateOf("") }
-    var searchMode by remember { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var searchMode by rememberSaveable { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
+    var isRefreshing by remember { mutableStateOf(false) }
+
+    // 搜索结果页按返回键 → 先退出搜索模式回到浏览，而不是退出应用
+    BackHandler(enabled = searchMode) {
+        searchMode = false
+        query = ""
+    }
 
     // 详情页标签触发的搜索（点击标签 / 搜索标签 / 排除标签）
     androidx.compose.runtime.LaunchedEffect(pendingSearch) {
@@ -137,6 +147,9 @@ fun DiscoverScreen(
                 }
             }
 
+            androidx.compose.runtime.LaunchedEffect(state) {
+                if (state !is UiState.Loading) isRefreshing = false
+            }
             when {
                 searchMode -> when (val s = results) {
                     is UiState.Loading -> FullScreenLoading()
@@ -150,12 +163,21 @@ fun DiscoverScreen(
                         }
                     }
                 }
-                else -> when (val s = state) {
-                    is UiState.Loading -> FullScreenLoading()
-                    is UiState.Error -> FullScreenError(s.message)
-                    is UiState.Success -> {
-                        val shown = if (onlyFavorites) s.data.filter { it.id in favoriteWorkIds } else s.data
-                        if (shown.isEmpty()) EmptyState("收藏中暂无作品") else WorksGrid(shown, onWorkClick)
+                else -> PullToRefreshBox(
+                    isRefreshing = isRefreshing,
+                    onRefresh = {
+                        isRefreshing = true
+                        homeViewModel.loadWorks()
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    when (val s = state) {
+                        is UiState.Loading -> FullScreenLoading()
+                        is UiState.Error -> FullScreenError(s.message)
+                        is UiState.Success -> {
+                            val shown = if (onlyFavorites) s.data.filter { it.id in favoriteWorkIds } else s.data
+                            if (shown.isEmpty()) EmptyState("收藏中暂无作品") else WorksGrid(shown, onWorkClick)
+                        }
                     }
                 }
             }
@@ -180,7 +202,7 @@ fun DiscoverScreen(
 private fun WorksGrid(works: List<Work>, onWorkClick: (Work) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
-        contentPadding = PaddingValues(12.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 96.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),

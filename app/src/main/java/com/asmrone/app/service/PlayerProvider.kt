@@ -25,17 +25,23 @@ class PlayerProvider @Inject constructor(
 
 /**
  * 把作品与音轨转换成播放项列表。
+ * @param localPath 已下载文件的本地路径；非空时优先播放本地文件
  */
 object MediaItemFactory {
 
     fun buildPlaylist(work: Work, tracks: List<TrackNode>): List<MediaItem> =
         tracks.map { track -> buildMediaItem(work, track) }
 
-    fun buildMediaItem(work: Work, track: TrackNode): MediaItem {
-        val url = track.resolvedStreamUrl ?: track.resolvedDownloadUrl ?: ""
+    fun buildMediaItem(work: Work, track: TrackNode, localPath: String? = null): MediaItem {
+        val remoteUrl = track.resolvedStreamUrl ?: track.resolvedDownloadUrl ?: ""
+        val localUri = localPath
+            ?.takeIf { it.isNotBlank() }
+            ?.let { java.io.File(it) }
+            ?.takeIf { it.exists() && it.length() > 0 }
+            ?.let { "file://${it.absolutePath}" }
         return MediaItem.Builder()
-            .setUri(url)
-            .setMediaId(track.hash ?: url)
+            .setUri(localUri ?: remoteUrl)
+            .setMediaId(track.hash ?: remoteUrl)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(track.title)

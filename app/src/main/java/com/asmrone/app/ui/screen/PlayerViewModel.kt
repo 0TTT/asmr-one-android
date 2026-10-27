@@ -12,6 +12,8 @@ import com.asmrone.app.data.model.TrackNode
 import com.asmrone.app.data.model.Work
 import com.asmrone.app.data.model.normalizeSubtitleBaseName
 import com.asmrone.app.data.model.parseSubtitle
+import com.asmrone.app.data.model.resolvedDownloadUrl
+import com.asmrone.app.data.model.resolvedStreamUrl
 import com.asmrone.app.data.repository.AsmrOneRepository
 import com.asmrone.app.service.MediaItemFactory
 import com.asmrone.app.service.PlaybackService
@@ -155,6 +157,15 @@ class PlayerViewModel @Inject constructor(
         _queue.value = QueueState(entries, player.currentMediaItemIndex)
     }
 
+    /** 构建播放列表：已下载完成的音轨优先播放本地文件（离线可用） */
+    private suspend fun buildLocalAwareItems(work: Work, tracks: List<TrackNode>): List<MediaItem> {
+        val downloaded = runCatching { repository.getDownloadedMap() }.getOrDefault(emptyMap())
+        return tracks.map { t ->
+            val url = t.resolvedStreamUrl ?: t.resolvedDownloadUrl
+            MediaItemFactory.buildMediaItem(work, t, url?.let { downloaded[it] })
+        }
+    }
+
     /** 播放单个音轨 */
     fun play(work: Work, track: TrackNode) {
         startPlaybackService()
@@ -164,10 +175,12 @@ class PlayerViewModel @Inject constructor(
         _subtitleLines.value = emptyList()
         _subtitleCandidates.value = emptyList()
         manualSubtitles.clear()
-        player.setMediaItem(MediaItemFactory.buildMediaItem(work, track))
-        player.prepare()
-        player.playWhenReady = true
-        refreshQueue()
+        viewModelScope.launch {
+            player.setMediaItems(buildLocalAwareItems(work, listOf(track)))
+            player.prepare()
+            player.playWhenReady = true
+            refreshQueue()
+        }
         loadSubtitleMap(work)
     }
 
@@ -181,10 +194,12 @@ class PlayerViewModel @Inject constructor(
         _subtitleLines.value = emptyList()
         _subtitleCandidates.value = emptyList()
         manualSubtitles.clear()
-        player.setMediaItems(MediaItemFactory.buildPlaylist(work, tracks), startIndex, 0L)
-        player.prepare()
-        player.playWhenReady = true
-        refreshQueue()
+        viewModelScope.launch {
+            player.setMediaItems(buildLocalAwareItems(work, tracks), startIndex, 0L)
+            player.prepare()
+            player.playWhenReady = true
+            refreshQueue()
+        }
         loadSubtitleMap(work)
     }
 

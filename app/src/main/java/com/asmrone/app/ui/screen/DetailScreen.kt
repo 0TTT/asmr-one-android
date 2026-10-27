@@ -115,7 +115,7 @@ fun DetailScreen(
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(bottom = 16.dp),
+            contentPadding = PaddingValues(bottom = 100.dp),
         ) {
             item { WorkHeader(work, onTagSearch) }
 
@@ -192,7 +192,7 @@ private fun WorkHeader(work: Work, onTagSearch: (String) -> Unit) {
                 )
                 ClickableCopyText(
                     text = work.circleName,
-                    searchText = work.circleName,
+                    searchText = "\$circle:${work.circleName}\$",
                     onSearch = onTagSearch,
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onBackground,
@@ -207,7 +207,7 @@ private fun WorkHeader(work: Work, onTagSearch: (String) -> Unit) {
                         work.vaNames.forEach { name ->
                             ClickableCopyText(
                                 text = name,
-                                searchText = name,
+                                searchText = "\$va:$name\$",
                                 onSearch = onTagSearch,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -312,7 +312,7 @@ private fun TagChip(tag: Tag, onTagSearch: (String) -> Unit) {
                 .clip(RoundedCornerShape(6.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer)
                 .combinedClickable(
-                    onClick = { onTagSearch(name) },
+                    onClick = { onTagSearch("\$tag:$name\$") },
                     onLongClick = { menuOpen = true },
                 )
                 .padding(horizontal = 8.dp, vertical = 4.dp),
@@ -328,14 +328,14 @@ private fun TagChip(tag: Tag, onTagSearch: (String) -> Unit) {
             DropdownMenuItem(
                 text = { Text("搜索标签") },
                 onClick = {
-                    onTagSearch(name)
+                    onTagSearch("\$tag:$name\$")
                     menuOpen = false
                 },
             )
             DropdownMenuItem(
                 text = { Text("排除标签") },
                 onClick = {
-                    onTagSearch("@-tag:$name")
+                    onTagSearch("\$-tag:$name\$")
                     menuOpen = false
                 },
             )

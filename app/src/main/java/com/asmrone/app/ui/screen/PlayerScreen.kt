@@ -102,6 +102,7 @@ private fun speedLabel(speed: Float): String =
 fun PlayerScreen(
     playerViewModel: PlayerViewModel,
     onClose: () -> Unit,
+    onCoverClick: () -> Unit = {},
 ) {
     val nowPlaying by playerViewModel.nowPlaying.collectAsStateWithLifecycle()
     val (work, track) = nowPlaying ?: return
@@ -157,14 +158,15 @@ fun PlayerScreen(
             }
         }
 
-        // 封面（当前音轨名叠在左下角）
+        // 封面（当前音轨名叠在左下角）；点击封面回到作品详情页
         Box(
             modifier = Modifier
                 .padding(horizontal = 32.dp)
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(16.dp))
-                .background(PlayerSurface),
+                .background(PlayerSurface)
+                .clickable(onClick = onCoverClick),
         ) {
             if (work.coverUrl != null) {
                 AsyncImage(

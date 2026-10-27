@@ -45,6 +45,9 @@ interface DownloadDao {
     @Query("SELECT * FROM downloads ORDER BY downloadedAt DESC")
     fun observeAll(): Flow<List<DownloadEntity>>
 
+    @Query("SELECT * FROM downloads")
+    suspend fun getAll(): List<DownloadEntity>
+
     @Query("SELECT * FROM downloads WHERE trackUrl = :trackUrl LIMIT 1")
     suspend fun getByUrl(trackUrl: String): DownloadEntity?
 

@@ -54,18 +54,62 @@ class FilterViewModel @Inject constructor(
         }
         viewModelScope.launch {
             _listState.value = UiState.Loading
-            try {
-                val items = when (type) {
-                    FilterType.TAG -> repository.getTags()
-                    FilterType.CIRCLE -> repository.getCircles()
-                    FilterType.VA -> repository.getVas()
-                }
+            val items = when (type) {
+                FilterType.TAG -> runCatching { repository.getTags() }.getOrNull()
+                FilterType.CIRCLE -> runCatching { repository.getCircles() }.getOrNull()
+                FilterType.VA -> runCatching { repository.getVas() }.getOrNull()
+            }
+            if (items != null) {
                 cache[type] = items
                 _listState.value = UiState.Success(items)
-            } catch (e: Exception) {
-                _listState.value = UiState.Error(e.message ?: "加载失败")
+            } else {
+                // /tags /circles /vas 需要登录认证（未登录返回 401）。
+                // 降级方案：聚合热门作品的标签/社团/声优与本地引用计数，无需登录即可用。
+                val agg = aggregateFallback()
+                agg.forEach { (t, list) -> cache[t] = list }
+                val fallback = agg[type]
+                if (fallback != null) {
+                    _listState.value = UiState.Success(fallback)
+                } else {
+                    _listState.value = UiState.Error("加载失败，请检查网络")
+                }
             }
         }
+    }
+
+    /** 聚合热门作品（按下载量前几页）的标签/社团/声优引用计数，作为筛选列表的无登录兜底 */
+    private suspend fun aggregateFallback(): Map<FilterType, List<FilterItem>> {
+        val tagCount = linkedMapOf<String, Int>()
+        val circleCount = linkedMapOf<String, Int>()
+        val vaCount = linkedMapOf<String, Int>()
+        for (page in 1..4) {
+            runCatching { repository.getWorks(page = page, order = "dl_count", sort = "desc") }
+                .getOrNull()?.works?.forEach { w ->
+                    w.tags.forEach { t ->
+                        val n = t.displayName
+                        if (n.isNotBlank()) tagCount[n] = (tagCount[n] ?: 0) + 1
+                    }
+                    w.circleName.takeIf { it.isNotBlank() }?.let {
+                        circleCount[it] = (circleCount[it] ?: 0) + 1
+                    }
+                    w.vas.forEach { v ->
+                        v.name?.takeIf { n -> n.isNotBlank() }?.let {
+                            vaCount[it] = (vaCount[it] ?: 0) + 1
+                        }
+                    }
+                }
+        }
+        return mapOf(
+            FilterType.TAG to tagCount.entries
+                .sortedByDescending { it.value }
+                .map { FilterItem(name = it.key, count = it.value) },
+            FilterType.CIRCLE to circleCount.entries
+                .sortedByDescending { it.value }
+                .map { FilterItem(name = it.key, count = it.value) },
+            FilterType.VA to vaCount.entries
+                .sortedByDescending { it.value }
+                .map { FilterItem(name = it.key, count = it.value) },
+        )
     }
 
     // ---- 选择状态 ----
@@ -128,30 +172,23 @@ class FilterViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     /**
-     * 构建站点原生搜索语法：
-     * `关键词@tag:a/b,-tag:c,va:x,circle:y`；subtitle/order/sort 走独立查询参数。
-     * @return 可直接作为搜索路径的字符串，空串表示无有效条件
+     * 构建站点原生搜索语法（$ 包裹体系，已实测有效）：
+     * `$tag:标签$`、`$-tag:标签$`（排除）、`$va:声优$`、`$circle:社团$`，直接与关键词拼接。
+     * subtitle/order/sort 走独立查询参数。
      */
     fun buildQuery(keyword: String): String {
         val parts = mutableListOf<String>()
         if (keyword.isNotBlank()) parts += keyword.trim()
 
         val filters = mutableListOf<String>()
-        fun join(names: Set<String>) = names.joinToString("/")
-        _included.value[FilterType.TAG]?.takeIf { it.isNotEmpty() }?.let { filters += "tag:${join(it)}" }
-        _excluded.value[FilterType.TAG]?.takeIf { it.isNotEmpty() }?.let { filters += "-tag:${join(it)}" }
-        _included.value[FilterType.VA]?.takeIf { it.isNotEmpty() }?.let { filters += "va:${join(it)}" }
-        _excluded.value[FilterType.VA]?.takeIf { it.isNotEmpty() }?.let { filters += "-va:${join(it)}" }
-        _included.value[FilterType.CIRCLE]?.takeIf { it.isNotEmpty() }?.let { filters += "circle:${join(it)}" }
-        _excluded.value[FilterType.CIRCLE]?.takeIf { it.isNotEmpty() }?.let { filters += "-circle:${join(it)}" }
+        _included.value[FilterType.TAG]?.forEach { filters += "\$tag:$it\$" }
+        _excluded.value[FilterType.TAG]?.forEach { filters += "\$-tag:$it\$" }
+        _included.value[FilterType.VA]?.forEach { filters += "\$va:$it\$" }
+        _excluded.value[FilterType.VA]?.forEach { filters += "\$-va:$it\$" }
+        _included.value[FilterType.CIRCLE]?.forEach { filters += "\$circle:$it\$" }
+        _excluded.value[FilterType.CIRCLE]?.forEach { filters += "\$-circle:$it\$" }
 
-        return buildString {
-            append(parts.joinToString(","))
-            if (filters.isNotEmpty()) {
-                if (isNotEmpty()) append("@")
-                append(filters.joinToString(","))
-            }
-        }
+        return (parts + filters).joinToString("")
     }
 
     fun hasActiveSelection(): Boolean =

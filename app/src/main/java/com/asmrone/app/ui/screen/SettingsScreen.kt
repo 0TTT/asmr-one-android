@@ -196,7 +196,7 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             SectionTitle("关于")
-            SettingRow("版本", "1.0.1")
+            SettingRow("版本", "1.0.2")
             SettingRow("项目", "AsmrOne 特供版")
             Text(
                 text = "仅供学习交流使用，请遵守当地法律法规与站点使用条款。所有作品版权归原作者及 DLsite 所有。",

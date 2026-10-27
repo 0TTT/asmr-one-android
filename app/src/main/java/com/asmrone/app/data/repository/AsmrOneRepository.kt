@@ -110,7 +110,21 @@ class AsmrOneRepository @Inject constructor(
     fun observeDownloads(): Flow<List<DownloadEntity>> = downloadDao.observeAll()
     suspend fun getDownloadByUrl(url: String): DownloadEntity? = downloadDao.getByUrl(url)
     suspend fun addDownload(entity: DownloadEntity) = downloadDao.insert(entity)
-    suspend fun removeDownload(url: String) = downloadDao.deleteByUrl(url)
+
+    /** 已下载文件的映射：音轨流地址 -> 本地路径（文件仍存在才返回），供本地优先播放 */
+    suspend fun getDownloadedMap(): Map<String, String> =
+        downloadDao.getAll()
+            .filter { java.io.File(it.localPath).exists() }
+            .associate { it.trackUrl to it.localPath }
+
+    /** 删除下载记录并移除本地文件 */
+    suspend fun removeDownload(url: String) {
+        val entity = downloadDao.getByUrl(url)
+        downloadDao.deleteByUrl(url)
+        entity?.localPath?.takeIf { it.isNotBlank() }?.let { path ->
+            runCatching { java.io.File(path).delete() }
+        }
+    }
 }
 
 /** Work -> FavoriteEntity 映射 */
