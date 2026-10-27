@@ -54,6 +54,18 @@ class SettingsViewModel @Inject constructor(
 
     val serverHost: StateFlow<String> = settingsRepository.serverHost
 
+    /** 搜索历史（最新在前） */
+    val searchHistory: StateFlow<List<String>> = settingsRepository.searchHistory
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun addSearchHistory(keyword: String) {
+        viewModelScope.launch { settingsRepository.addSearchHistory(keyword) }
+    }
+
+    fun clearSearchHistory() {
+        viewModelScope.launch { settingsRepository.clearSearchHistory() }
+    }
+
     /** 延迟测量结果：host -> 毫秒，-1 表示超时/失败，缺失表示测量中 */
     private val _latencies = MutableStateFlow<Map<String, Long>>(emptyMap())
     val latencies: StateFlow<Map<String, Long>> = _latencies.asStateFlow()
@@ -196,7 +208,7 @@ fun SettingsScreen(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             SectionTitle("关于")
-            SettingRow("版本", "1.0.2")
+            SettingRow("版本", "1.0.3")
             SettingRow("项目", "AsmrOne 特供版")
             Text(
                 text = "仅供学习交流使用，请遵守当地法律法规与站点使用条款。所有作品版权归原作者及 DLsite 所有。",

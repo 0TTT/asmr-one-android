@@ -86,20 +86,19 @@ class HomeViewModel @Inject constructor(
 @HiltViewModel
 class SearchViewModel @Inject constructor(
     private val repository: AsmrOneRepository,
+    private val settingsRepository: com.asmrone.app.data.SettingsRepository,
 ) : ViewModel() {
 
     private val _results = MutableStateFlow<UiState<List<Work>>>(UiState.Loading)
     val results: StateFlow<UiState<List<Work>>> = _results.asStateFlow()
 
-    fun search(keyword: String, subtitleOnly: Boolean = false) {
+    fun search(keyword: String) {
         if (keyword.isBlank()) return
+        viewModelScope.launch { settingsRepository.addSearchHistory(keyword.trim()) }
         viewModelScope.launch {
             _results.value = UiState.Loading
             try {
-                val resp = repository.searchWorks(
-                    keyword = keyword,
-                    subtitle = if (subtitleOnly) 1 else 0,
-                )
+                val resp = repository.searchWorks(keyword = keyword)
                 _results.value = UiState.Success(resp.works)
             } catch (e: Exception) {
                 _results.value = UiState.Error(e.message ?: "搜索失败")

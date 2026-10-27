@@ -1,5 +1,6 @@
 package com.asmrone.app.ui.screen
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,17 +24,25 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,11 +54,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -77,7 +89,7 @@ fun DetailScreen(
     playerViewModel: PlayerViewModel = hiltViewModel(),
     viewModel: DetailViewModel = hiltViewModel(),
 ) {
-    val tracksState by viewModel.tracks.collectAsStateWithLifecycle()
+    val treeState by viewModel.tree.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val downloadManager = EntryPointAccessors
         .fromApplication(context.applicationContext, DownloadManagerEntryPoint::class.java)
@@ -90,6 +102,16 @@ fun DetailScreen(
     // 收藏状态
     val isFavorite by viewModel.observeFavorite(work.id ?: 0)
         .collectAsStateWithLifecycle(initialValue = false)
+
+    // 下载模式：行尾出现复选框，选择后确认下载
+    var isDownloadMode by rememberSaveable { mutableStateOf(false) }
+    var selectedHashes by rememberSaveable { mutableStateOf(setOf<String>()) }
+
+    // 下载模式下按返回键 → 先退出下载模式（MainScreen 的返回逻辑在其后）
+    BackHandler(enabled = isDownloadMode) {
+        isDownloadMode = false
+        selectedHashes = emptySet()
+    }
 
     Scaffold(
         topBar = {
@@ -124,19 +146,41 @@ fun DetailScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("音轨列表", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    val ts = tracksState
-                    if (ts is UiState.Success && ts.data.isNotEmpty()) {
-                        Button(onClick = { playerViewModel.playAll(work, ts.data) }) {
-                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("全部播放")
+                    Text("文件列表", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    val rows = (treeState as? UiState.Success)?.let { flattenTree(it.data) } ?: emptyList()
+                    if (rows.isNotEmpty()) {
+                        if (!isDownloadMode) {
+                            FilledTonalButton(onClick = { isDownloadMode = true }) {
+                                Icon(Icons.Filled.Download, contentDescription = null)
+                                Spacer(Modifier.size(4.dp))
+                                Text("下载")
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    val nodes = selectedHashes.mapNotNull { h ->
+                                        rows.firstOrNull { r -> r.node.hash == h }?.node
+                                    }
+                                    nodes.forEach { downloadManager.download(work, it) }
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "已加入下载队列 ${nodes.size} 个文件",
+                                        android.widget.Toast.LENGTH_SHORT,
+                                    ).show()
+                                    isDownloadMode = false
+                                    selectedHashes = emptySet()
+                                },
+                            ) {
+                                Icon(Icons.Filled.Download, contentDescription = null)
+                                Spacer(Modifier.size(4.dp))
+                                Text("确认下载(${selectedHashes.size})")
+                            }
                         }
                     }
                 }
             }
 
-            when (val ts = tracksState) {
+            when (val ts = treeState) {
                 is UiState.Loading -> item {
                     Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -148,11 +192,37 @@ fun DetailScreen(
                     }
                 }
                 is UiState.Success -> {
-                    items(ts.data, key = { it.hash ?: it.mediaStreamUrl ?: it.title ?: "" }) { track ->
-                        TrackRow(
-                            track = track,
-                            onPlay = { playerViewModel.play(work, track) },
-                            onDownload = { downloadManager.download(work, track) },
+                    val rows = flattenTree(ts.data)
+                    items(
+                        rows,
+                        key = { r -> r.node.hash ?: "${r.depth}_${r.node.type}_${r.node.title}" },
+                    ) { row ->
+                        TreeFileRow(
+                            row = row,
+                            isDownloadMode = isDownloadMode,
+                            isChecked = row.node.hash != null && row.node.hash in selectedHashes,
+                            onPlay = {
+                                // 点击某个音频 → 自动把同一文件夹内的所有音频按顺序拉入播放队列
+                                val siblings = rows
+                                    .filter { it.parent == row.parent && it.node.isAudio }
+                                    .map { it.node }
+                                val idx = siblings.indexOfFirst { it.hash == row.node.hash }
+                                playerViewModel.playAll(work, siblings, idx.coerceAtLeast(0))
+                            },
+                            onToggle = {
+                                val node = row.node
+                                if (node.isFolder) {
+                                    val hashes = collectFileHashes(node)
+                                    val allChecked = hashes.isNotEmpty() && hashes.all { it in selectedHashes }
+                                    selectedHashes =
+                                        if (allChecked) selectedHashes - hashes else selectedHashes + hashes
+                                } else {
+                                    node.hash?.let { h ->
+                                        selectedHashes =
+                                            if (h in selectedHashes) selectedHashes - h else selectedHashes + h
+                                    }
+                                }
+                            },
                         )
                         HorizontalDivider()
                     }
@@ -160,6 +230,84 @@ fun DetailScreen(
             }
         }
     }
+}
+
+/** 文件类型对应图标 */
+private fun fileIcon(node: TrackNode): ImageVector = when {
+    node.isFolder -> Icons.Filled.Folder
+    node.isAudio -> Icons.Filled.MusicNote
+    node.isSubtitle -> Icons.Filled.Subtitles
+    node.title?.endsWith(".pdf", true) == true -> Icons.Filled.PictureAsPdf
+    node.type == "image" -> Icons.Filled.Image
+    node.type == "text" -> Icons.Filled.Description
+    else -> Icons.Filled.InsertDriveFile
+}
+
+/**
+ * 文件树单行：缩进表示层级；点击音频播放（同文件夹音频成队）；
+ * 下载模式下显示复选框（文件夹 = 递归全选其下文件）。
+ */
+@Composable
+private fun TreeFileRow(
+    row: TreeRow,
+    isDownloadMode: Boolean,
+    isChecked: Boolean,
+    onPlay: () -> Unit,
+    onToggle: () -> Unit,
+) {
+    val node = row.node
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .clickable {
+                when {
+                    isDownloadMode -> onToggle()
+                    node.isAudio -> onPlay()
+                }
+            }
+            .padding(start = 16.dp + 20.dp * row.depth, end = 8.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = fileIcon(node),
+            contentDescription = null,
+            tint = if (node.isFolder) MaterialTheme.colorScheme.onSurfaceVariant
+            else MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.size(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = node.title ?: "未命名",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (node.isFolder) MaterialTheme.colorScheme.onBackground
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            node.size?.let { size ->
+                Text(
+                    formatSize(size),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        when {
+            isDownloadMode && node.isFile -> Checkbox(checked = isChecked, onCheckedChange = { onToggle() })
+            !isDownloadMode && node.isAudio -> Icon(
+                Icons.Filled.PlayArrow,
+                contentDescription = "播放",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
+private fun formatSize(bytes: Long): String {
+    val mb = bytes / 1024f / 1024f
+    return if (mb >= 1f) String.format(Locale.US, "%.1f MB", mb) else "${bytes / 1024} KB"
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -341,36 +489,4 @@ private fun TagChip(tag: Tag, onTagSearch: (String) -> Unit) {
             )
         }
     }
-}
-
-@Composable
-private fun TrackRow(
-    track: TrackNode,
-    onPlay: () -> Unit,
-    onDownload: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onPlay)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Icon(Icons.Filled.PlayArrow, "播放", tint = MaterialTheme.colorScheme.primary)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(track.title ?: "未命名音轨", style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            track.size?.let { size ->
-                Text(formatSize(size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        FilledTonalIconButton(onClick = onDownload) {
-            Icon(Icons.Filled.Download, "下载")
-        }
-    }
-}
-
-private fun formatSize(bytes: Long): String {
-    val mb = bytes / 1024f / 1024f
-    return if (mb >= 1f) String.format(Locale.US, "%.1f MB", mb) else "${bytes / 1024} KB"
 }

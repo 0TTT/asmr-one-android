@@ -5,14 +5,15 @@ import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.asmrone.app.R
 import com.asmrone.app.data.local.DownloadDao
 import com.asmrone.app.data.local.DownloadEntity
-import dagger.assisted.Assisted
-import dagger.assisted.AssistedInject
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -20,18 +21,29 @@ import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
 
+/** Worker 用 EntryPoint 获取依赖（HiltWorkerFactory 在部分机型上创建失败，故不走 @HiltWorker） */
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface DownloadWorkerEntryPoint {
+    fun downloadDao(): DownloadDao
+    fun okHttpClient(): OkHttpClient
+}
+
 /**
- * 下载单个音轨的后台任务：下载到应用私有目录，完成后入库并发通知。
+ * 下载单个音轨/文件的后台任务：下载到应用私有目录，完成后入库并发通知。
  */
-@HiltWorker
-class DownloadWorker @AssistedInject constructor(
-    @Assisted appContext: Context,
-    @Assisted params: WorkerParameters,
-    private val downloadDao: DownloadDao,
-    private val okHttpClient: OkHttpClient,
+class DownloadWorker(
+    appContext: Context,
+    params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val entryPoint = EntryPointAccessors.fromApplication(
+            applicationContext, DownloadWorkerEntryPoint::class.java
+        )
+        val downloadDao = entryPoint.downloadDao()
+        val okHttpClient = entryPoint.okHttpClient()
+
         val url = inputData.getString(KEY_URL) ?: return@withContext Result.failure()
         val workId = inputData.getInt(KEY_WORK_ID, 0)
         val workTitle = inputData.getString(KEY_WORK_TITLE) ?: ""
@@ -54,7 +66,7 @@ class DownloadWorker @AssistedInject constructor(
                 // 文件名：作品号_音轨名，去除非法字符
                 val safeName = trackTitle
                     .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-                    .take(80)
+                    .take(120)
                 val ext = inferExtension(url, response.header("Content-Type"))
                 val file = File(dir, "${workId}_${safeName}.$ext")
 
@@ -110,7 +122,8 @@ class DownloadWorker @AssistedInject constructor(
                 it.contains("wav") -> "wav"
                 it.contains("mp4") || it.contains("m4a") -> "m4a"
                 it.contains("ogg") -> "ogg"
-                else -> "mp3"
+                it.contains("pdf") -> "pdf"
+                else -> url.substringBefore('?').substringAfterLast('.', "mp3")
             }
         }
         val path = url.substringBefore('?')

@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -47,6 +49,9 @@ class SettingsRepository @Inject constructor(
         private val KEY_SERVER_HOST = stringPreferencesKey("server_host")
 
         private val KEY_FAVORITE_FILTERS = stringSetPreferencesKey("favorite_filters")
+
+        private val KEY_SEARCH_HISTORY = stringPreferencesKey("search_history")
+        private const val MAX_SEARCH_HISTORY = 20
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -90,4 +95,36 @@ class SettingsRepository @Inject constructor(
             }
         }
     }
+
+    // ---- 搜索历史（JSON 数组存储，保持顺序） ----
+
+    /** 搜索历史：最新在前，最多 20 条 */
+    val searchHistory: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        decodeHistory(prefs[KEY_SEARCH_HISTORY])
+    }
+
+    suspend fun addSearchHistory(keyword: String) {
+        val kw = keyword.trim()
+        if (kw.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            val current = decodeHistory(prefs[KEY_SEARCH_HISTORY])
+            val next = (listOf(kw) + current.filter { it != kw }).take(MAX_SEARCH_HISTORY)
+            prefs[KEY_SEARCH_HISTORY] = encodeHistory(next)
+        }
+    }
+
+    suspend fun clearSearchHistory() {
+        context.dataStore.edit { it[KEY_SEARCH_HISTORY] = "[]" }
+    }
+
+    private fun decodeHistory(raw: String?): List<String> =
+        runCatching {
+            kotlinx.serialization.json.Json.decodeFromString(HISTORY_SERIALIZER, raw ?: "[]")
+        }.getOrDefault(emptyList())
+
+    private fun encodeHistory(list: List<String>): String =
+        kotlinx.serialization.json.Json.encodeToString(HISTORY_SERIALIZER, list)
 }
+
+/** 搜索历史的 JSON 序列化器（文件级，避免与已有 companion 冲突） */
+private val HISTORY_SERIALIZER = ListSerializer(String.serializer())
